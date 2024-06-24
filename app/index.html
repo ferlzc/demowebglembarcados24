@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>three.js webgl - custom attributes [particles][billboards]</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <link type="text/css" rel="stylesheet" href="main.css">
+</head>
+
+<body>
+    <div id="container"></div>
+
+    <script src="../build/bundle.js" defer></script>
+
+    <script type="x-shader/x-vertex" id="vertexshader">
+        attribute float size;
+        attribute vec3 ca;
+
+        varying vec3 vColor;
+
+        void main() {
+            vColor = ca;
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = size * (300.0 / -mvPosition.z);
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    </script>
+
+    <script type="x-shader/x-fragment" id="fragmentshader">
+        uniform vec3 color;
+        uniform sampler2D pointTexture;
+
+        varying vec3 vColor;
+
+        void main() {
+            vec4 color = vec4(color * vColor, 1.0) * texture2D(pointTexture, gl_PointCoord);
+            gl_FragColor = color;
+        }
+    </script>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "../build/three.module.js",
+                "three/addons/": "./jsm/"
+            }
+        }
+    </script>
+
+</body>
+</html>
