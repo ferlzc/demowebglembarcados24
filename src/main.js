@@ -2,116 +2,140 @@ import * as THREE from 'three';
 
 			import Stats from 'three/addons/libs/stats.module.js';
 
-			import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
+			import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
-			let renderer, scene, camera, stats;
-			let sphere, length1;
+			import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+			import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+			import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
-			const WIDTH = window.innerWidth;
-			const HEIGHT = window.innerHeight;
+			let camera, scene, renderer;
+			let stats;
 
-			document.addEventListener("DOMContentLoaded", function() {
-                init();
-            });
+			let grid;
+			let controls;
+
+			const wheels = [];
 
 			function init() {
 
-				camera = new THREE.PerspectiveCamera( 45, WIDTH / HEIGHT, 1, 10000 );
-				camera.position.z = 300;
-
-				scene = new THREE.Scene();
-
-				const radius = 100, segments = 68, rings = 38;
-
-				let sphereGeometry = new THREE.SphereGeometry( radius, segments, rings );
-				let boxGeometry = new THREE.BoxGeometry( 0.8 * radius, 0.8 * radius, 0.8 * radius, 10, 10, 10 );
-
-				// if normal and uv attributes are not removed, mergeVertices() can't consolidate identical vertices with different normal/uv data
-
-				sphereGeometry.deleteAttribute( 'normal' );
-				sphereGeometry.deleteAttribute( 'uv' );
-
-				boxGeometry.deleteAttribute( 'normal' );
-				boxGeometry.deleteAttribute( 'uv' );
-
-				sphereGeometry = BufferGeometryUtils.mergeVertices( sphereGeometry );
-				boxGeometry = BufferGeometryUtils.mergeVertices( boxGeometry );
-
-				const combinedGeometry = BufferGeometryUtils.mergeGeometries( [ sphereGeometry, boxGeometry ] );
-				const positionAttribute = combinedGeometry.getAttribute( 'position' );
-
-				const colors = [];
-				const sizes = [];
-
-				const color = new THREE.Color();
-				const vertex = new THREE.Vector3();
-
-				length1 = sphereGeometry.getAttribute( 'position' ).count;
-
-				for ( let i = 0, l = positionAttribute.count; i < l; i ++ ) {
-
-					vertex.fromBufferAttribute( positionAttribute, i );
-
-					if ( i < length1 ) {
-						// Ajuste cor esfera - branco e luminosidade 0.7
-						color.setHSL( 0, 0, ( vertex.y + radius ) / ( 4 * radius ) + 0.7 );
-
-					} else {
-						// Ajuste cor quadrado de dentro - azul - mexer na cor do azul: de 0.55 - 0.65
-						color.setHSL( 0.57, 0.75, 0.25 + vertex.y / ( 2 * radius ) );
-
-					}
-
-					color.toArray( colors, i * 3 );
-
-					sizes[ i ] = i < length1 ? 10 : 40;
-
-				}
-
-				const geometry = new THREE.BufferGeometry();
-				geometry.setAttribute( 'position', positionAttribute );
-				geometry.setAttribute( 'size', new THREE.Float32BufferAttribute( sizes, 1 ) );
-				geometry.setAttribute( 'ca', new THREE.Float32BufferAttribute( colors, 3 ) );
-
-				//
-
-				const texture = new THREE.TextureLoader().load( 'textures/sprites/disc.png' );
-				texture.wrapS = THREE.RepeatWrapping;
-				texture.wrapT = THREE.RepeatWrapping;
-
-				const material = new THREE.ShaderMaterial( {
-
-					uniforms: {
-						color: { value: new THREE.Color( 0xffffff ) },
-						pointTexture: { value: texture }
-					},
-					vertexShader: document.getElementById( 'vertexshader' ).textContent,
-					fragmentShader: document.getElementById( 'fragmentshader' ).textContent,
-					transparent: true
-
-				} );
-
-				//
-
-				sphere = new THREE.Points( geometry, material );
-				scene.add( sphere );
-
-				//
-
-				renderer = new THREE.WebGLRenderer();
-				renderer.setPixelRatio( window.devicePixelRatio );
-				renderer.setSize( WIDTH, HEIGHT );
-				renderer.setAnimationLoop( animate );
-
 				const container = document.getElementById( 'container' );
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.setAnimationLoop( animate );
+				renderer.toneMapping = THREE.ACESFilmicToneMapping;
+				renderer.toneMappingExposure = 0.85;
 				container.appendChild( renderer.domElement );
+
+				window.addEventListener( 'resize', onWindowResize );
 
 				stats = new Stats();
 				container.appendChild( stats.dom );
 
 				//
 
-				window.addEventListener( 'resize', onWindowResize );
+				camera = new THREE.PerspectiveCamera( 40, window.innerWidth / window.innerHeight, 0.1, 100 );
+				camera.position.set( 4.25, 1.4, - 4.5 );
+
+				controls = new OrbitControls( camera, container );
+				controls.maxDistance = 9;
+				controls.maxPolarAngle = THREE.MathUtils.degToRad( 90 );
+				controls.target.set( 0, 0.5, 0 );
+				controls.update();
+
+				scene = new THREE.Scene();
+				scene.background = new THREE.Color( 0x333333 );
+				scene.environment = new RGBELoader().load( 'textures/equirectangular/venice_sunset_1k.hdr' );
+				scene.environment.mapping = THREE.EquirectangularReflectionMapping;
+				scene.fog = new THREE.Fog( 0x333333, 10, 15 );
+
+				grid = new THREE.GridHelper( 20, 40, 0xffffff, 0xffffff );
+				grid.material.opacity = 0.2;
+				grid.material.depthWrite = false;
+				grid.material.transparent = true;
+				scene.add( grid );
+
+				// materials
+
+				const bodyMaterial = new THREE.MeshPhysicalMaterial( {
+					color: 0xff0000, metalness: 1.0, roughness: 0.5, clearcoat: 1.0, clearcoatRoughness: 0.03
+				} );
+
+				const detailsMaterial = new THREE.MeshStandardMaterial( {
+					color: 0xffffff, metalness: 1.0, roughness: 0.5
+				} );
+
+				const glassMaterial = new THREE.MeshPhysicalMaterial( {
+					color: 0xffffff, metalness: 0.25, roughness: 0, transmission: 1.0
+				} );
+
+				const bodyColorInput = document.getElementById( 'body-color' );
+				bodyColorInput.addEventListener( 'input', function () {
+
+					bodyMaterial.color.set( this.value );
+
+				} );
+
+				const detailsColorInput = document.getElementById( 'details-color' );
+				detailsColorInput.addEventListener( 'input', function () {
+
+					detailsMaterial.color.set( this.value );
+
+				} );
+
+				const glassColorInput = document.getElementById( 'glass-color' );
+				glassColorInput.addEventListener( 'input', function () {
+
+					glassMaterial.color.set( this.value );
+
+				} );
+
+				// Car
+
+				const shadow = new THREE.TextureLoader().load( 'models/ferrari_ao.png' );
+
+				const dracoLoader = new DRACOLoader();
+				dracoLoader.setDecoderPath( 'jsm/gltf/' );
+
+				const loader = new GLTFLoader();
+				loader.setDRACOLoader( dracoLoader );
+
+				loader.load( 'models/ferrari.glb', function ( gltf ) {
+
+					const carModel = gltf.scene.children[ 0 ];
+
+					carModel.getObjectByName( 'body' ).material = bodyMaterial;
+
+					carModel.getObjectByName( 'rim_fl' ).material = detailsMaterial;
+					carModel.getObjectByName( 'rim_fr' ).material = detailsMaterial;
+					carModel.getObjectByName( 'rim_rr' ).material = detailsMaterial;
+					carModel.getObjectByName( 'rim_rl' ).material = detailsMaterial;
+					carModel.getObjectByName( 'trim' ).material = detailsMaterial;
+
+					carModel.getObjectByName( 'glass' ).material = glassMaterial;
+
+					wheels.push(
+						carModel.getObjectByName( 'wheel_fl' ),
+						carModel.getObjectByName( 'wheel_fr' ),
+						carModel.getObjectByName( 'wheel_rl' ),
+						carModel.getObjectByName( 'wheel_rr' )
+					);
+
+					// shadow
+					const mesh = new THREE.Mesh(
+						new THREE.PlaneGeometry( 0.655 * 4, 1.3 * 4 ),
+						new THREE.MeshBasicMaterial( {
+							map: shadow, blending: THREE.MultiplyBlending, toneMapped: false, transparent: true
+						} )
+					);
+					mesh.rotation.x = - Math.PI / 2;
+					mesh.renderOrder = 2;
+					carModel.add( mesh );
+
+					scene.add( carModel );
+
+				} );
 
 			}
 
@@ -124,104 +148,25 @@ import * as THREE from 'three';
 
 			}
 
-			function sortPoints() {
-
-				const vector = new THREE.Vector3();
-
-				// Model View Projection matrix
-
-				const matrix = new THREE.Matrix4();
-				matrix.multiplyMatrices( camera.projectionMatrix, camera.matrixWorldInverse );
-				matrix.multiply( sphere.matrixWorld );
-
-				//
-
-				const geometry = sphere.geometry;
-
-				let index = geometry.getIndex();
-				const positions = geometry.getAttribute( 'position' ).array;
-				const length = positions.length / 3;
-
-				if ( index === null ) {
-
-					const array = new Uint16Array( length );
-
-					for ( let i = 0; i < length; i ++ ) {
-
-						array[ i ] = i;
-
-					}
-
-					index = new THREE.BufferAttribute( array, 1 );
-
-					geometry.setIndex( index );
-
-				}
-
-				const sortArray = [];
-
-				for ( let i = 0; i < length; i ++ ) {
-
-					vector.fromArray( positions, i * 3 );
-					vector.applyMatrix4( matrix );
-
-					sortArray.push( [ vector.z, i ] );
-
-				}
-
-				function numericalSort( a, b ) {
-
-					return b[ 0 ] - a[ 0 ];
-
-				}
-
-				sortArray.sort( numericalSort );
-
-				const indices = index.array;
-
-				for ( let i = 0; i < length; i ++ ) {
-
-					indices[ i ] = sortArray[ i ][ 1 ];
-
-				}
-
-				geometry.index.needsUpdate = true;
-
-			}
-
 			function animate() {
 
-				render();
+				controls.update();
+
+				const time = - performance.now() / 1000;
+
+				for ( let i = 0; i < wheels.length; i ++ ) {
+
+					wheels[ i ].rotation.x = time * Math.PI * 2;
+
+				}
+
+				grid.position.z = - ( time ) % 1;
+
+				renderer.render( scene, camera );
+
 				stats.update();
 
 			}
 
-			function render() {
+			init();
 
-				const time = Date.now() * 0.005;
-
-				sphere.rotation.y = 0.02 * time;
-				sphere.rotation.z = 0.02 * time;
-
-				const geometry = sphere.geometry;
-				const attributes = geometry.attributes;
-
-				for ( let i = 0; i < attributes.size.array.length; i ++ ) {
-
-					if ( i < length1 ) {
-
-						attributes.size.array[ i ] = 16 + 12 * Math.sin( 0.1 * i + time );
-
-					}
-
-				}
-
-				attributes.size.needsUpdate = true;
-
-				sortPoints();
-
-				renderer.render( scene, camera );
-
-			}
-
-	
